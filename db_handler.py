@@ -84,3 +84,13 @@ try:
     logger.info("Successfully populated the Chroma database!")
 except Exception as e:
     logger.exception("Failed to populate the Chroma database!")
+
+try:
+    stored_data = Chroma(
+        persist_directory=db_directory,
+        embedding=embeddings
+    )
+    stored_data.as_retriever()
+    logger.info("Successfully loaded the vector database")
+except Exception as e:
+    logger.exception("Error in loading the vector database.")
