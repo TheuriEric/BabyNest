@@ -1,11 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-from chat_models import ChatRequest, ChatResponse
-from components import retriever
+from chat_models import ChatRequest, ChatResponse, SessionEndRequest
+from components import retriever, AdaptiveConversation, session_memory
+from db_handler import text_splitter
 from dotenv import load_dotenv
 import logging
 import os
@@ -41,7 +43,7 @@ llm = ChatGroq(
     temperature=0.7,
     api_key=os.getenv("GROQ_API_KEY")
 )
-
+adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
 
 @app.get("/")
 async def root():
@@ -62,6 +64,17 @@ async def assistant(request: ChatRequest):
     # Daily updates
     # Motivation
     # Track baby development weekly
+    if not request.session_id:
+        session_id = str(uuid4())
+        session_memory[session_id] = []
+    else:
+        session_id = request.session_id
+    
+    if session_id not in session_memory:
+        session_memory[session_id] = []
+        
+    history = session_memory[session_id]
+    formatted_history = "\n".join([f"User: {q}\nAI: {a}" for q, a in history])
     prompt_template = ChatPromptTemplate.from_template(
         """
         You are an intelligent, African-focused pregnancy and postpartum health assistant. You are to provide the ussers with accurate medical information and personalized tips to the best of your abilities. Be empathetic, humble and use simple language for easier understanding.
@@ -75,11 +88,18 @@ async def assistant(request: ChatRequest):
     )
     chain = {
         "user_input": RunnablePassthrough(),
+        "chat_history": RunnablePassthrough(),
         "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
     } | prompt_template | llm | StrOutputParser()
-    result = chain.invoke({"user_input": request.user_request})
 
-    return result
+    result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+
+    session_memory[session_id].append((request.user_request, result))
+
+    return {
+        "session_id": session_id,
+        "response": result
+    }
 
 @app.post("/api/external")
 async def external_functions():
@@ -88,8 +108,30 @@ async def external_functions():
     pass
 
 @app.post("/api/end_session")
-async def end_session():
-    pass
+async def end_session(request: SessionEndRequest):
+    """
+    Summarizes the entire session and adds it to the persistent database.
+    """
+    session_id = request.session_id
+    if session_id not in session_memory:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    
+    conversation = session_memory[session_id]
+    if not conversation:
+        del session_memory[session_id]
+        return {"message": "Session was empty. No data saved."}
+
+    try:
+        summary = adaptive_convo.summarize_conversation(conversation)
+        adaptive_convo.add_convo_history_to_db(summary)
+        
+        # Clean up the in-memory cache
+        del session_memory[session_id]
+        
+        return {"message": "Session summarized and saved successfully.", "summary": summary}
+    except Exception as e:
+        logger.exception("Failed to end session and save conversation.")
+        raise HTTPException(status_code=500, detail="Failed to save session data.")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_core.documents import Document
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from db_handler import stored_data, logger, text_splitter
 
@@ -20,20 +20,24 @@ retriever = RAGTool(stored_data)
 class AdaptiveConversation:
     conversation_history: List[Tuple[str, str]] = []
 
-    def summarize_conversation(history: List[Tuple[str:str]],summarizing_llm):
+    def __init__(self, summarizing_llm):
+        self.summarizing_llm = summarizing_llm
+        self.text_splitter = text_splitter
+        self.stored_data = stored_data
+
+    def summarize_conversation(self,history: List[Tuple[str:str]]):
         logger.info("Summarizing entire conversation...")
         full_conversation = "\n".join([f"User: {q} \nAI: {a}" for q, a in history])
 
         summary_prompt = ChatPromptTemplate.from_template(
         "Please summarize the following conversation in a concise and neutral way. The summary should be in the third person.\n\nConversation:\n{conversation}"
     )
-
-        summarization_chain = summary_prompt | summarizing_llm
+        summarization_chain = summary_prompt | self.summarizing_llm
         summary = summarization_chain.invoke({"conversation": full_conversation})
         
         return summary.content
     
-    def add_convo_history_to_db(text: str):
+    def add_convo_history_to_db(self,text: str):
         logger.info("Adding conversation history to vector database...")
         doc = Document(page_content=text)
         chunks = text_splitter.split_documents([doc])
@@ -44,6 +48,8 @@ class AdaptiveConversation:
         except Exception as e:
             logger.exception("Failed to add summary to vectordb memory")
             raise
+
+session_memory: Dict[str, List[Tuple[str, str]]] = {}
 
 class Chat:
     pass
