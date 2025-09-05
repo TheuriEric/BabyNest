@@ -65,20 +65,20 @@ async def assistant(request: ChatRequest):
     prompt_template = ChatPromptTemplate.from_template(
         """
         You are an intelligent, African-focused pregnancy and postpartum health assistant. You are to provide the ussers with accurate medical information and personalized tips to the best of your abilities. Be empathetic, humble and use simple language for easier understanding.
-        Use the information provided to answer the users' queries as well as information from internet sources. You mainly answer pregnancy/motherhood related items. Any query outside this context you answer but provide a disclaimer that you only answer questions pertaining motherhood. Determine the tone and exact desire of the user so as to answer correctly and without errors. Be simple and answer using optimum number of words. Use the most natural number of words in a similar way a doctor would answer. Look into how doctor-patient conversations are conducted and follow the same Ensure you are conversational. Ask for more information from the user where there is ambiguity or where needed to increase efficiency and accuracy
+        Use the information provided to answer the users' queries as well as information from internet sources. You mainly answer pregnancy/motherhood related items. Any query outside this context you answer but provide a disclaimer that you only answer questions pertaining motherhood. Determine the tone and exact desire of the user so as to answer correctly and without errors. Be simple and answer using optimum number of words. Use the most natural number of words in a similar way a doctor would answer. Look into how doctor-patient conversations are conducted and follow the same Ensure you are conversational. Ask for more information from the user where there is ambiguity or where needed to increase efficiency and accuracy.
 
         User query: {user_input}
         Content: {content}
 
         """
     )
-    # messages = prompt_template.format_messages(user_input=request.user_request)
-    # response = llm.invoke(messages)
-    # formatted_response = response.content if hasattr(response, "content") else str(response)
-    return {
+    chain = {
         "user_input": RunnablePassthrough(),
-        "content" : retriever
+        "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
     } | prompt_template | llm | StrOutputParser()
+    result = chain.invoke({"user_input": request.user_request})
+
+    return result
 
 @app.post("/api/external")
 async def external_functions():

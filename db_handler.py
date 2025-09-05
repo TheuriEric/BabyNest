@@ -1,6 +1,6 @@
 import logging
-from langchain.document_loaders import DirectoryLoader, PDFPlumberLoader, WebBaseLoader, TextLoader
-from langchain.vectorstores import Chroma
+from langchain_community.document_loaders import DirectoryLoader, PDFPlumberLoader, WebBaseLoader, TextLoader
+from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
@@ -85,12 +85,11 @@ try:
 except Exception as e:
     logger.exception("Failed to populate the Chroma database!")
 
-try:
-    stored_data = Chroma(
-        persist_directory=db_directory,
-        embedding=embeddings
-    )
-    stored_data.as_retriever()
-    logger.info("Successfully loaded the vector database")
-except Exception as e:
-    logger.exception("Error in loading the vector database.")
+
+stored_data = Chroma(
+    persist_directory=db_directory,
+    embedding_function=embeddings
+    
+)
+stored_data = stored_data.as_retriever()
+logger.info("Successfully loaded the vector database")

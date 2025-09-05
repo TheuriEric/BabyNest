@@ -1,9 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from chat_models import ChatRequest, ChatResponse
-
-
-from langchain_chroma import Chroma
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_core.documents import Document
 from typing import List, Tuple
@@ -17,7 +13,9 @@ class RAGTool:
     def get_documents(self, query: str) -> str:
         docs = self.retriever.invoke(query)
         return "\n\n".join(doc.page_content for doc in docs)
-        
+    
+retriever = RAGTool(stored_data)
+
 
 class AdaptiveConversation:
     conversation_history: List[Tuple[str, str]] = []
