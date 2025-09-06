@@ -9,6 +9,7 @@ from chat_models import ChatRequest, ChatResponse, SessionEndRequest
 from components import retriever, AdaptiveConversation, session_memory
 from db_handler import text_splitter
 from dotenv import load_dotenv
+from crew import Babynest
 import logging
 import os
 
@@ -44,19 +45,91 @@ llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY")
 )
 adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
+crew_instance = Babynest().crew()
+
+def route_query(user_request: str) -> str:
+    """A simple router to decide between LangChain and CrewAI."""
+    health_keywords = ["symptoms", "pain", "doctor", "swollen", "vomiting", "bleeding", "postpartum"]
+    if any(keyword in user_request.lower() for keyword in health_keywords):
+        return "crewai"
+    
+    return "langchain"
+
 
 @app.get("/")
 async def root():
     return {"message": "Successfully loaded the backend. Please visit /docs"}
 
 
-@app.post("/api/chat") # This will be the main chat function
-async def chat():
-    prompt_template = ChatPromptTemplate.from_template(""
-    """
-You are the main chat assistant for BabyNest. Here you handle all general chat features that are non-health related. You answer general queries in a friendly tone and in simple terms. Aim for accuracy in understanding using the simplest method. Any health related features are handled by
+# @app.post("/api/chat") # This will be the main chat function
+# async def chat():
+#     prompt_template = ChatPromptTemplate.from_template(""
+#     """
+# You are the main chat assistant for BabyNest. Here you handle all general chat features that are non-health related. You answer general queries in a friendly tone and in simple terms. Aim for accuracy in understanding using the simplest method. Any health related features are handled by
 
-""")
+# """)
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    # Determine which workflow to use based on the user's query
+    route = route_query(request.user_request)
+
+    if route == "crewai":
+        try:
+            logger.info("Routing query to CrewAI for multi-agent collaboration.")
+            # The .kickoff() method starts the CrewAI process
+            result = crew_instance.kickoff(inputs={'user_input': request.user_request}) # Use a similar input key as your LangChain chain
+            
+            return {
+                "session_id": request.session_id or str(uuid4()),
+                "response": result
+            }
+        except Exception as e:
+            logger.error(f"CrewAI execution failed: {e}")
+            raise HTTPException(status_code=500, detail="CrewAI workflow failed.")
+    else: # Default to LangChain RAG
+        logger.info("Routing query to LangChain RAG chain for general chat.")
+        
+        # This is your existing LangChain RAG logic
+        if not request.session_id:
+            session_id = str(uuid4())
+            session_memory[session_id] = []
+        else:
+            session_id = request.session_id
+        
+        if session_id not in session_memory:
+            session_memory[session_id] = []
+            
+        history = session_memory[session_id]
+        formatted_history = "\n".join([f"User: {q}\nAI: {a}" for q, a in history])
+        
+        prompt_template = ChatPromptTemplate.from_template(
+            """
+            You are the main chat assistant for BabyNest. Here you handle all general chat features that are non-health related. You answer general queries in a friendly tone and in simple terms. Aim for accuracy in understanding using the simplest method. Any health related features are handled by
+            
+            User query: {user_input}
+            Chat history: {chat_history}
+            """
+        )
+        chain = (
+            {
+                "user_input": RunnablePassthrough(),
+                "chat_history": RunnablePassthrough(),
+                "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
+            }
+            | prompt_template
+            | llm
+            | StrOutputParser()
+        )
+
+        result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+        
+        session_memory[session_id].append((request.user_request, result))
+        
+        return {
+            "session_id": session_id,
+            "response": result
+        }
+
 
 @app.post("/api/health")
 async def assistant(request: ChatRequest):

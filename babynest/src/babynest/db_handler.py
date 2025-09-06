@@ -18,7 +18,7 @@ file = __name__.strip("__")
 logger = logging.getLogger(file)
 
 # Getting cwd
-project_root = Path(__file__).resolve().parent
+project_root = Path(__file__).resolve().parent.parent.parent
 knowledge_directory = project_root/"knowledge"
 db_directory = project_root/"db"
 try:
@@ -33,13 +33,13 @@ resources_links = []
 web_loader = WebBaseLoader(resources_links)
 # PDF files
 pdf_loaders = DirectoryLoader(
-    "./knowledge/",
+    str(knowledge_directory),
     loader_cls=PDFPlumberLoader,
     glob="*.pdf"
 )
 # Text files
 text_loader = DirectoryLoader(
-    "./knowledge/",
+    str(knowledge_directory),
     loader_cls=TextLoader,
     glob="*.txt"
 )
