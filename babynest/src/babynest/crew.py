@@ -7,7 +7,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from typing import List
 from dotenv import load_dotenv
-from db_handler import logger, stored_data
+from .db_handler import logger, stored_data
 import os
 
 load_dotenv()

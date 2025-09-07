@@ -16,11 +16,7 @@ health_support:
     - Peer support stories (community_testimonials)
     - Safety and tone review (moderator)
   agent: maternal_health_researcher
-  # agents:
-  #   - maternal_health_researcher
-  #   - personalized_guidance
-  #   - community_testimonials
-  #   - moderator
+
 
 postpartum_support:
   description: |
@@ -40,12 +36,7 @@ postpartum_support:
     - Empathetic tone acknowledging user’s emotions
     - Real-life peer experiences to normalize their feelings
   agent: personalized_guidance
-  # agents:
-  #   - maternal_health_researcher
-  #   - personalized_guidance
-  #   - community_testimonials
-  #   - moderator
-
+  
 testimonial_support:
   description: |
     Role: Community Testimonial Support System
@@ -63,9 +54,7 @@ testimonial_support:
     - Complement clinical and personalized guidance
     - Are verified for safety and tone
   agent: community_testimonials
-  # agents:
-  #   - community_testimonials
-  #   - moderator
+  
 
 final_summary:
   description: |
