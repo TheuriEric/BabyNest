@@ -61,9 +61,12 @@ final_summary:
     Role: Final Summarizer
     Objective: Combine outputs from all tasks into a single, empathetic, user-friendly response.
     Guidelines:
-      - Do NOT introduce new facts, just consolidate.
-      - Ensure tone is compassionate and safe.
-      - Keep it concise and coherent.
+    - First, outline the key facts from all agent inputs.
+    - Second, synthesize the information step-by-step.
+    - Third, review for tone, safety, and coherence.
+    - Fourth, generate the final user-facing response.
+    - Ensure tone is compassionate and safe.
+    - Keep it concise and coherent.
   expected_output: |
     A single final user-facing response, reviewed and polished.
   agent:

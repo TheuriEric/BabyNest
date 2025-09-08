@@ -40,7 +40,7 @@ def rag_tool(query: str) -> str:
         return "No relevant documents found"
 
 llm_clients = {
-    "groq": ChatGroq(model="openai/gpt-oss-20b", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
+    "groq": ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
     "gemini": ChatGoogleGenerativeAI(model="models/gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.getenv("GOOGLE_API_KEY"))  
     }
    

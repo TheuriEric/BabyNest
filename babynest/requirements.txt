@@ -10,3 +10,4 @@ slowapi
 crewai
 crewai-tools
 duckduckgo-search
+rank_bm25

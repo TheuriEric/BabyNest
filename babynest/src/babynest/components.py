@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_core.documents import Document
+from langchain_core.runnables import RunnablePassthrough
 from typing import List, Tuple, Dict
 
 from db_handler import stored_data, logger, text_splitter
@@ -51,5 +52,56 @@ class AdaptiveConversation:
 
 session_memory: Dict[str, List[Tuple[str, str]]] = {}
 
-class Chat:
-    pass
+class ReasoningTool:
+    def __init__(self, llm):
+        self.llm = llm
+        self.prompt = ChatPromptTemplate.from_template(
+            """
+            You are a structured reasoning assistant. First, analyze the user query step by step. Then, decide the best answer based on knowledge and chat history.
+            
+            User query: {user_input}
+            Chat history: {chat_history}
+            Knowledge: {retrieved_docs}
+            
+            Provide reasoning in bullet points, then give a final concise answer.
+            """
+        )
+        self.chain = (
+            {
+                "user_input": RunnablePassthrough(),
+                "chat_history": RunnablePassthrough(),
+                "retrieved_docs": RunnablePassthrough()
+            }
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
+        )
+    
+    async def reason(self, user_input, chat_history, retrieved_docs):
+        return await self.chain.ainvoke({
+            "user_input": user_input, 
+            "chat_history": chat_history, 
+            "retrieved_docs": retrieved_docs
+        })
+    
+class ValidationTool:
+    def __init__(self, llm):
+        self.llm = llm
+        self.prompt = ChatPromptTemplate.from_template(
+            """
+            Validate the following answer:
+            {reasoning}
+
+            Rules:
+            - Must be safe (no harmful advice).
+            - Must be relevant to the query.
+            - If invalid, suggest a corrected version.
+            - If valid, simply return the response as-is.
+
+            Final Decision (Valid or Corrected Answer):
+            """
+        )
+        self.chain = self.prompt | self.llm | StrOutputParser()
+
+    async def validate(self, reasoning):
+        return await self.chain.ainvoke({"reasoning": reasoning})

@@ -3,6 +3,7 @@ from langchain_community.document_loaders import DirectoryLoader, PDFPlumberLoad
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from dotenv import load_dotenv
 from pathlib import Path
 import os
@@ -84,11 +85,34 @@ try:
 except Exception as e:
     logger.exception("Failed to populate the Chroma database!")
 
+try:
+    vector_retriever = Chroma(
+        persist_directory=db_directory,
+        embedding_function=embeddings
+    ).as_retriever()
+    logger.info("Successfully loaded the vector retriever")
+except Exception as e:
+    logger.exception("Failed to create the retriever.")
 
 stored_data = Chroma(
     persist_directory=db_directory,
     embedding_function=embeddings
     
 )
+try:
+    keyword_retriever = BM25Retriever.from_documents(chunks)
+    logger.info("Successfully created the keyword retriever")
+except Exception as e:
+    logger.exception("Failed to load the keyword retriever")
+
 stored_data = stored_data.as_retriever()
 logger.info("Successfully loaded the vector database")
+
+try:
+    stored_data = EnsembleRetriever(
+        retrievers=[vector_retriever, keyword_retriever],
+        weights=[0.5, 0.5]
+    )
+    logger.info("Successfully created the hybrid search retriever")
+except Exception as e:
+    logger.exception("Failed to load the retrievers.")
