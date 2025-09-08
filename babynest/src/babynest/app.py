@@ -14,7 +14,7 @@ from chat_models import ChatRequest, ChatResponse, SessionEndRequest
 from components import retriever, AdaptiveConversation, session_memory
 from db_handler import text_splitter
 from dotenv import load_dotenv
-from crew import Babynest
+from crew import Babynest,get_llm
 import logging
 import os
 
@@ -59,21 +59,41 @@ app.add_middleware(
     allow_credentials="True",
     allow_methods=["POST", "GET"]
 )
-llm = ChatGroq(
-    model="openai/gpt-oss-20b",
-    temperature=0.7,
-    api_key=os.getenv("GROQ_API_KEY")
-)
+llm = get_llm()
 adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
 crew_instance = Babynest().crew()
 
-def route_query(user_request: str) -> str:
-    """A simple router to decide between LangChain and CrewAI."""
-    health_keywords = ["symptoms", "pain", "doctor", "swollen", "vomiting", "bleeding", "postpartum"]
-    if any(keyword in user_request.lower() for keyword in health_keywords):
-        return "crewai"
-    
-    return "langchain"
+async def route_query(user_request: str) -> str:
+    """
+    Intelligent router using a lightweight LLM to determine the best workflow.
+    """
+
+    router_prompt = ChatPromptTemplate.from_template(
+        """
+        You are a routing expert. Your task is to analyze the user's query and decide whether to route it to 'crewai' for health-related advice or 'langchain' for general chat. 
+        Respond with only a single word: 'crewai' or 'langchain'.
+
+        Examples:
+        User: "What are common pregnancy symptoms?"
+        Response: crewai
+
+        User: "Hello, how are you today?"
+        Response: langchain
+
+        User: "{query}"
+        Response: 
+        """
+    )
+    router_chain = router_prompt | llm | StrOutputParser()
+    try:
+        decision = await router_chain.ainvoke({"query": user_request})
+        return decision.strip().lower()
+    except Exception as e:
+        logger.warning(f"Router LLM failed, falling back to keyword matching: {e}")
+        health_keywords = ["symptoms", "pain", "doctor", "swollen", "vomiting", "bleeding", "postpartum"]
+        if any(keyword in user_request.lower() for keyword in health_keywords):
+            return "crewai"
+        return "langchain"
 
 
 @app.get("/")
