@@ -10,6 +10,7 @@ from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -66,13 +67,22 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["POST", "GET"]
 )
+def get_langchain_llm():
+    if os.getenv("GOOGLE_API_KEY"):
+        logger.info("Using ChatGoogleGenerativeAI for LangChain components.")
+        return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GOOGLE_API_KEY"), temperature=0.5)
+    else:
+        logger.error("No valid API key found for Gemini.")
+        raise ValueError("GOOGLE_API_KEY not found.")
 
-
-llm = get_llm()
-adaptive_convo = AdaptiveConversation(summarizing_llm=llm)
+# llm = get_llm()
+langchain_llm = get_langchain_llm()
+adaptive_convo = AdaptiveConversation(summarizing_llm=langchain_llm)
 crew_instance = Babynest().crew()
-reasoning_tool = ReasoningTool(llm=llm)
-validation_tool = ValidationTool(llm=llm)
+reasoning_tool = ReasoningTool(llm=langchain_llm)
+validation_tool = ValidationTool(llm=langchain_llm)
+
+
 
 
 async def route_query(user_request: str) -> str:
@@ -88,7 +98,7 @@ async def route_query(user_request: str) -> str:
         Response:
         """
     )
-    router_chain = router_prompt | llm | StrOutputParser()
+    router_chain = router_prompt | langchain_llm | StrOutputParser()
 
     try:
         decision = await router_chain.ainvoke({"query": user_request})
@@ -165,11 +175,6 @@ async def root():
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
-    return await mcp_pipeline(request.user_request, request.session_id)
-
-
-@app.post("/api/health")
-async def assistant(request: ChatRequest):
     return await mcp_pipeline(request.user_request, request.session_id)
 
 
