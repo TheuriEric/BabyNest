@@ -14,7 +14,7 @@ from chat_models import ChatRequest, ChatResponse, SessionEndRequest
 from components import retriever, AdaptiveConversation, session_memory
 from db_handler import text_splitter
 from dotenv import load_dotenv
-from crew import Babynest,get_llm
+from crew import Babynest,get_llm,llm_clients
 import logging
 import os
 
@@ -59,6 +59,7 @@ app.add_middleware(
     allow_credentials="True",
     allow_methods=["POST", "GET"]
 )
+
 llm = get_llm()
 adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
 crew_instance = Babynest().crew()
@@ -95,6 +96,26 @@ async def route_query(user_request: str) -> str:
             return "crewai"
         return "langchain"
 
+async def invoke_llm_with_fallback(chain, user_input, chat_history):
+    """
+    Invokes the primary LLM with a comprehensive fallback mechanism.
+    """
+    primary_llm_chain = chain
+
+    fallback_llm_chain = chain.with_config(run_name="fallback", configurable={"llm": llm_clients["gemini"]})
+    
+    try:
+        result = await primary_llm_chain.ainvoke({"user_input": user_input, "chat_history": chat_history})
+        return result
+    except Exception as e:
+        logger.error(f"Primary LLM invocation failed. Falling back to secondary LLM: {e}")
+        try:
+            # Fallback to the secondary LLM (Gemini)
+            result = await fallback_llm_chain.ainvoke({"user_input": user_input, "chat_history": chat_history})
+            return result
+        except Exception as fallback_e:
+            logger.error(f"Fallback LLM also failed: {fallback_e}")
+            raise HTTPException(status_code=500, detail="Failed to process request with all available models.")
 
 @app.get("/")
 async def root():
@@ -129,7 +150,6 @@ async def chat(request: ChatRequest):
     else: # Default to LangChain RAG
         logger.info("Routing query to LangChain RAG chain for general chat.")
         
-        # This is your existing LangChain RAG logic
         if not request.session_id:
             session_id = str(uuid4())
             session_memory[session_id] = []
@@ -161,7 +181,8 @@ async def chat(request: ChatRequest):
             | StrOutputParser()
         )
 
-        result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+        # result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+        result = await invoke_llm_with_fallback(chain, request.user_request, formatted_history)
         
         session_memory[session_id].append((request.user_request, result))
         
@@ -205,7 +226,8 @@ async def assistant(request: ChatRequest):
         "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
     } | prompt_template | llm | StrOutputParser()
 
-    result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+    # result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
+    result = await invoke_llm_with_fallback(chain, request.user_request, formatted_history)
 
     session_memory[session_id].append((request.user_request, result))
 
