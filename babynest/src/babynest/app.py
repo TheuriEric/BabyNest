@@ -11,7 +11,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from chat_models import ChatRequest, ChatResponse, SessionEndRequest
-from components import retriever, AdaptiveConversation, session_memory
+from components import retriever, AdaptiveConversation, session_memory, ValidationTool, ReasoningTool
 from db_handler import text_splitter
 from dotenv import load_dotenv
 from crew import Babynest,get_llm,llm_clients
@@ -28,6 +28,14 @@ logger = logging.getLogger(file)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
 
+try:
+    os.environ["LANGSMITH_TRACING_V2"]="true"
+    os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API)_KEY")
+    os.environ["LANGSMITH_PROJECT"] = "BabyNest"
+    os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+    logger.info("Successfully initialized Langsmith tracing")
+except Exception as e:
+    logger.exception("Failed to initialize langsmith tracing")
 
 try:
     app = FastAPI(title="BabyNest",
@@ -63,6 +71,8 @@ app.add_middleware(
 llm = get_llm()
 adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
 crew_instance = Babynest().crew()
+reasoning_tool = ReasoningTool(llm=llm)
+validation_tool = ValidationTool(llm=llm)
 
 async def route_query(user_request: str) -> str:
     """
@@ -117,124 +127,60 @@ async def invoke_llm_with_fallback(chain, user_input, chat_history):
             logger.error(f"Fallback LLM also failed: {fallback_e}")
             raise HTTPException(status_code=500, detail="Failed to process request with all available models.")
 
-@app.get("/")
-async def root():
-    return {"message": "Successfully loaded the backend. Please visit /docs"}
-
-
-# @app.post("/api/chat") # This will be the main chat function
-# async def chat():
-#     prompt_template = ChatPromptTemplate.from_template(""
-#     """
-# You are the main chat assistant for BabyNest. Here you handle all general chat features that are non-health related. You answer general queries in a friendly tone and in simple terms. Aim for accuracy in understanding using the simplest method. Any health related features are handled by
-
-# """)
-@app.post("/api/chat")
-async def chat(request: ChatRequest):
-    # Determine which workflow to use based on the user's query
-    route = route_query(request.user_request)
-
-    if route == "crewai":
-        try:
-            logger.info("Routing query to CrewAI for multi-agent collaboration.")
-            # The .kickoff() method starts the CrewAI process
-            result = crew_instance.kickoff(inputs={'user_input': request.user_request}) # Use a similar input key as your LangChain chain
-            
-            return {
-                "session_id": request.session_id or str(uuid4()),
-                "response": result
-            }
-        except Exception as e:
-            logger.error(f"CrewAI execution failed: {e}")
-            raise HTTPException(status_code=500, detail="CrewAI workflow failed.")
-    else: # Default to LangChain RAG
-        logger.info("Routing query to LangChain RAG chain for general chat.")
-        
-        if not request.session_id:
-            session_id = str(uuid4())
-            session_memory[session_id] = []
-        else:
-            session_id = request.session_id
-        
-        if session_id not in session_memory:
-            session_memory[session_id] = []
-            
-        history = session_memory[session_id]
-        formatted_history = "\n".join([f"User: {q}\nAI: {a}" for q, a in history])
-        
-        prompt_template = ChatPromptTemplate.from_template(
-            """
-            You are the main chat assistant for BabyNest. Here you handle all general chat features that are non-health related. You answer general queries in a friendly tone and in simple terms. Aim for accuracy in understanding using the simplest method. Any health related features are handled by
-            
-            User query: {user_input}
-            Chat history: {chat_history}
-            """
-        )
-        chain = (
-            {
-                "user_input": RunnablePassthrough(),
-                "chat_history": RunnablePassthrough(),
-                "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
-            }
-            | prompt_template
-            | llm
-            | StrOutputParser()
-        )
-
-        # result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
-        result = await invoke_llm_with_fallback(chain, request.user_request, formatted_history)
-        
-        session_memory[session_id].append((request.user_request, result))
-        
-        return {
-            "session_id": session_id,
-            "response": result
-        }
-
-
-@app.post("/api/health")
-async def assistant(request: ChatRequest):
-    # Symptom logging/analysis
-    # Daily updates
-    # Motivation
-    # Track baby development weekly
-    if not request.session_id:
+async def mcp_pipeline(user_request: str, session_id: str = None):
+    """
+    Modular Conversational Pipeline (MCP):
+    - Route query type
+    - Retrieve knowledge if needed
+    - Reason and validate
+    - Generate response
+    """
+    if not session_id:
         session_id = str(uuid4())
         session_memory[session_id] = []
-    else:
-        session_id = request.session_id
-    
-    if session_id not in session_memory:
+    elif session_id not in session_memory:
         session_memory[session_id] = []
         
     history = session_memory[session_id]
     formatted_history = "\n".join([f"User: {q}\nAI: {a}" for q, a in history])
-    prompt_template = ChatPromptTemplate.from_template(
-        """
-        You are an intelligent, African-focused pregnancy and postpartum health assistant. You are to provide the ussers with accurate medical information and personalized tips to the best of your abilities. Be empathetic, humble and use simple language for easier understanding.
-        Use the information provided to answer the users' queries as well as information from internet sources. You mainly answer pregnancy/motherhood related items. Any query outside this context you answer but provide a disclaimer that you only answer questions pertaining motherhood. Determine the tone and exact desire of the user so as to answer correctly and without errors. Be simple and answer using optimum number of words. Use the most natural number of words in a similar way a doctor would answer. Look into how doctor-patient conversations are conducted and follow the same Ensure you are conversational. Ask for more information from the user where there is ambiguity or where needed to increase efficiency and accuracy.
 
+    route = await route_query(user_request)
+    
+    if route == "crewai":
+        logger.info("Routing query to CrewAI for multi-agent collaboration.")
+        try:
+            raw_response = crew_instance.kickoff(inputs={'user_input': user_request})
+        except Exception as e:
+            logger.error(f"CrewAI execution failed: {e}")
+            raise HTTPException(status_code=500, detail="CrewAI workflow failed.")
+    
+    else: 
+        logger.info("Routing query to LangChain RAG chain for general chat.")
 
-        User query: {user_input}
-        Content: {content}
+        retrieved_docs = retriever.get_documents(user_request)
 
-        """
-    )
-    chain = {
-        "user_input": RunnablePassthrough(),
-        "chat_history": RunnablePassthrough(),
-        "content" : RunnableLambda(lambda x: retriever.get_documents(x["user_input"]))
-    } | prompt_template | llm | StrOutputParser()
+        reasoning = await reasoning_tool.reason(
+            user_input=user_request, 
+            chat_history=formatted_history, 
+            retrieved_docs=retrieved_docs
+        )
+        
+        raw_response = await validation_tool.validate(reasoning)
 
-    # result = chain.invoke({"user_input": request.user_request, "chat_history": formatted_history})
-    result = await invoke_llm_with_fallback(chain, request.user_request, formatted_history)
-
-    session_memory[session_id].append((request.user_request, result))
-
+    session_memory[session_id].append((user_request, raw_response))
+    
     return {
         "session_id": session_id,
-        "response": result
+        "response": raw_response
     }
+
+@app.get("/")
+async def root():
+    return {"message": "Successfully loaded the backend. Please visit /docs"}
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    return await mcp_pipeline(request.user_request, request.session_id)
 
 @app.post("/api/external")
 async def external_functions():
