@@ -5,9 +5,10 @@ from crewai.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import List
 from dotenv import load_dotenv
-from .db_handler import logger, stored_data
+from db_handler import logger, stored_data
 import os
 
 load_dotenv()
@@ -39,26 +40,21 @@ def rag_tool(query: str) -> str:
         return "No relevant documents found"
     
 def get_llm():
+    llm_clients = {
+    "groq": ChatGroq(model="openai/gpt-oss-20b", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
+    "gemini": ChatGoogleGenerativeAI(model="models/gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.getenv("GOOGLE_API_KEY"))  
+    }
     try:
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        if not groq_api_key:
-            raise ValueError("GROQ_API_KEY environment variable is not set")
-        logger.info("Loaded groq API key")
+        groq = llm_clients["groq"]
+        logger.info("Successfully loaded grog AI model")
+        return groq
     except Exception as e:
-        logger.exception("Failed to load groq API key")
-        raise
-    try:
-        model_name = "groq/llama-3.3-70b-versatile"
-        llm = ChatGroq(
-            model_name=model_name,
-            temperature=0.7,
-            api_key=groq_api_key
-        )
-        logger.info(f"Successfully initialized the AI model: {model_name}")
-        return llm
-    except Exception as e:
-        logger.exception(f"Failed to load the AI model: {model_name}")
-        raise
+        logger.exception("Failed to load groq model, switching to gemini...")
+        gemini = llm_clients["gemini"]
+        logger.info("Successfully loaded gemini model")
+        return gemini
+        
+        
 
 @CrewBase
 class Babynest:

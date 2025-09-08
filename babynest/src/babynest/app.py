@@ -1,15 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-from .chat_models import ChatRequest, ChatResponse, SessionEndRequest
-from .components import retriever, AdaptiveConversation, session_memory
-from .db_handler import text_splitter
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from chat_models import ChatRequest, ChatResponse, SessionEndRequest
+from components import retriever, AdaptiveConversation, session_memory
+from db_handler import text_splitter
 from dotenv import load_dotenv
-from .crew import Babynest
+from crew import Babynest,get_llm
 import logging
 import os
 
@@ -21,6 +26,9 @@ logging.basicConfig(
 file = __name__.strip("__")
 logger = logging.getLogger(file)
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+
+
 try:
     app = FastAPI(title="BabyNest",
                 description="A pregnancy and postpartum platform backend",
@@ -29,6 +37,18 @@ try:
 except Exception as e:
     logger.error("Failed to initialize the FastAPI backend")
     raise
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """
+    Handles rate limit exceptions and returns a custom JSON response.
+    """
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Sorry, you have exceeded the rate limit (5/minute)"}
+    )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 origins=[]
 
@@ -39,21 +59,41 @@ app.add_middleware(
     allow_credentials="True",
     allow_methods=["POST", "GET"]
 )
-llm = ChatGroq(
-    model="openai/gpt-oss-20b",
-    temperature=0.7,
-    api_key=os.getenv("GROQ_API_KEY")
-)
+llm = get_llm()
 adaptive_convo = AdaptiveConversation(summarizing_llm=llm,)
 crew_instance = Babynest().crew()
 
-def route_query(user_request: str) -> str:
-    """A simple router to decide between LangChain and CrewAI."""
-    health_keywords = ["symptoms", "pain", "doctor", "swollen", "vomiting", "bleeding", "postpartum"]
-    if any(keyword in user_request.lower() for keyword in health_keywords):
-        return "crewai"
-    
-    return "langchain"
+async def route_query(user_request: str) -> str:
+    """
+    Intelligent router using a lightweight LLM to determine the best workflow.
+    """
+
+    router_prompt = ChatPromptTemplate.from_template(
+        """
+        You are a routing expert. Your task is to analyze the user's query and decide whether to route it to 'crewai' for health-related advice or 'langchain' for general chat. 
+        Respond with only a single word: 'crewai' or 'langchain'.
+
+        Examples:
+        User: "What are common pregnancy symptoms?"
+        Response: crewai
+
+        User: "Hello, how are you today?"
+        Response: langchain
+
+        User: "{query}"
+        Response: 
+        """
+    )
+    router_chain = router_prompt | llm | StrOutputParser()
+    try:
+        decision = await router_chain.ainvoke({"query": user_request})
+        return decision.strip().lower()
+    except Exception as e:
+        logger.warning(f"Router LLM failed, falling back to keyword matching: {e}")
+        health_keywords = ["symptoms", "pain", "doctor", "swollen", "vomiting", "bleeding", "postpartum"]
+        if any(keyword in user_request.lower() for keyword in health_keywords):
+            return "crewai"
+        return "langchain"
 
 
 @app.get("/")
