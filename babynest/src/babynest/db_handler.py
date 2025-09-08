@@ -16,8 +16,7 @@ logging.basicConfig(
 )
 file = __name__.strip("__")
 logger = logging.getLogger(file)
-
-# Getting cwd
+ # Getting cwd
 project_root = Path(__file__).resolve().parent.parent.parent
 knowledge_directory = project_root/"knowledge"
 db_directory = project_root/"db"

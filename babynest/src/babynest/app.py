@@ -1,15 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-from .chat_models import ChatRequest, ChatResponse, SessionEndRequest
-from .components import retriever, AdaptiveConversation, session_memory
-from .db_handler import text_splitter
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from chat_models import ChatRequest, ChatResponse, SessionEndRequest
+from components import retriever, AdaptiveConversation, session_memory
+from db_handler import text_splitter
 from dotenv import load_dotenv
-from .crew import Babynest
+from crew import Babynest
 import logging
 import os
 
@@ -21,6 +26,9 @@ logging.basicConfig(
 file = __name__.strip("__")
 logger = logging.getLogger(file)
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["5/minute"])
+
+
 try:
     app = FastAPI(title="BabyNest",
                 description="A pregnancy and postpartum platform backend",
@@ -29,6 +37,18 @@ try:
 except Exception as e:
     logger.error("Failed to initialize the FastAPI backend")
     raise
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """
+    Handles rate limit exceptions and returns a custom JSON response.
+    """
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Sorry, you have exceeded the rate limit (5/minute)"}
+    )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 origins=[]
 
