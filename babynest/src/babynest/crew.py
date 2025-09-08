@@ -38,12 +38,13 @@ def rag_tool(query: str) -> str:
     except Exception as e:
         logger.exception("Failed to search the vector db")
         return "No relevant documents found"
-    
-def get_llm():
-    llm_clients = {
+
+llm_clients = {
     "groq": ChatGroq(model="openai/gpt-oss-20b", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
     "gemini": ChatGoogleGenerativeAI(model="models/gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.getenv("GOOGLE_API_KEY"))  
     }
+   
+def get_llm():
     try:
         groq = llm_clients["groq"]
         logger.info("Successfully loaded grog AI model")
@@ -53,8 +54,7 @@ def get_llm():
         gemini = llm_clients["gemini"]
         logger.info("Successfully loaded gemini model")
         return gemini
-        
-        
+
 
 @CrewBase
 class Babynest:
