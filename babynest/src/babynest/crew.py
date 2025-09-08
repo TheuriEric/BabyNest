@@ -1,4 +1,4 @@
-from crewai import Agent, Crew, Process, Task
+from crewai import Agent, Crew, Process, Task, LLM
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.tools import tool
@@ -15,8 +15,11 @@ load_dotenv()
 
 @tool
 def internet_research_tool(query: str) -> str:
-    """Searches the internet for information based on a user's query. 
-    This is useful for finding up-to-date information not present in the internal knowledge base."""
+    """
+    Searches the internet for information based on a user's query.
+    The 'query' must be a simple, single string (e.g., 'postpartum depression stories').
+    This is useful for finding up-to-date information not present in the internal knowledge base.
+    """
     try:
         logger.info("Looking for internet information regarding your query")
         search_tool_instance = DuckDuckGoSearchRun()
@@ -27,10 +30,14 @@ def internet_research_tool(query: str) -> str:
         logger.exception("Failed to search the internet for your query")
         return f"No information collected regarding {query}"
 
+
 @tool
 def rag_tool(query: str) -> str:
-    """Retrieves relevant documents from the vector database based on a user's query. 
-    Use this tool to get information from the internal knowledge base."""
+    """
+    Retrieves relevant documents from the vector database based on a user's query.
+    The 'query' must be a simple, single string (e.g., 'community testimonials').
+    Use this tool to get information from the internal knowledge base.
+    """
     try:
         result = stored_data.invoke(query)
         logger.info("Successfully searched the vector db")
@@ -40,20 +47,36 @@ def rag_tool(query: str) -> str:
         return "No relevant documents found"
 
 llm_clients = {
-    "groq": ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
-    "gemini": ChatGoogleGenerativeAI(model="models/gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.getenv("GOOGLE_API_KEY"))  
+    "groq": ChatGroq(model="groq/llama-3.3-70b-versatile", temperature=0.7, api_key=os.getenv("GROQ_API_KEY")),
+    "gemini": ChatGoogleGenerativeAI(model="gemini/gemini-1.5-pro", temperature=0.7, google_api_key=os.getenv("GOOGLE_API_KEY"))  
     }
    
 def get_llm():
+    # try:
+    #     # groq = llm_clients["groq"]
+    #     logger.info("Successfully loaded groq AI model")
+    #     gemini = llm_clients["gemini"]
+    #     return gemini
+
+    #     # return groq
+    # except Exception as e:
+    #     logger.exception("Failed to load groq model, switching to gemini...")
+    #     # gemini = llm_clients["gemini"]
+
+    #     logger.info("Successfully loaded gemini model")
+    #     # return gemini
+     
+    # return ChatGroq(model="openai/gpt-oss-20b", temperature=0.7, api_key=os.getenv("GROQ_API_KEY"))
     try:
-        groq = llm_clients["groq"]
-        logger.info("Successfully loaded grog AI model")
-        return groq
+        return LLM(
+            model="gemini/gemini-1.5-flash",
+            api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0.5
+        )
     except Exception as e:
-        logger.exception("Failed to load groq model, switching to gemini...")
-        gemini = llm_clients["gemini"]
-        logger.info("Successfully loaded gemini model")
-        return gemini
+        logger.error(f"Failed to connect to Gemini... : {e}")
+        raise ValueError(f"Failed to connect to Gemini")
+
 
 
 @CrewBase
@@ -99,7 +122,7 @@ class Babynest:
         return Agent(
             config=self.agents_config.get('community_testimonials', {}),
             verbose=True,
-            llm=get_llm(),
+            llm=get_llm(), # Assuming get_llm() returns a CrewAI-compatible LLM
             tools=[rag_tool, internet_research_tool]
         )
 
