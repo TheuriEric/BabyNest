@@ -105,3 +105,37 @@ class ValidationTool:
 
     async def validate(self, reasoning):
         return await self.chain.ainvoke({"reasoning": reasoning})
+
+class GeneralChatTool:
+    def __init__(self, llm):
+        self.llm = llm
+        self.prompt = ChatPromptTemplate.from_template(
+            """
+            You are a helpful and friendly chatbot. Your goal is to provide concise and direct answers to user questions, maintaining a positive and supportive tone. You are not a medical professional, and you should always encourage users to consult with a healthcare provider for medical advice.
+
+            Based on the following knowledge and chat history, provide a brief and helpful response to the user's query. If the chat history or knowledge base are unrelated to the user's request, just answer without considering them and be realistic. You are an assistant, not a dictionary of words. Be as brief and as realistic as possible
+
+            User query: {user_input}
+            Chat history: {chat_history}
+            Knowledge: {retrieved_docs}
+
+            Final Answer:
+            """
+        )
+        self.chain = (
+            {
+                "user_input": RunnablePassthrough(),
+                "chat_history": RunnablePassthrough(),
+                "retrieved_docs": RunnablePassthrough()
+            }
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
+        )
+    
+    async def chat(self, user_input, chat_history, retrieved_docs):
+        return await self.chain.ainvoke({
+            "user_input": user_input, 
+            "chat_history": chat_history, 
+            "retrieved_docs": retrieved_docs
+        })

@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from chat_models import ChatRequest, ChatResponse, SessionEndRequest
-from components import retriever, AdaptiveConversation, session_memory, ValidationTool, ReasoningTool
+from components import retriever, AdaptiveConversation, session_memory, ValidationTool, ReasoningTool, GeneralChatTool
 from db_handler import text_splitter
 from dotenv import load_dotenv
 from crew import Babynest, get_llm, llm_clients
@@ -81,6 +81,7 @@ adaptive_convo = AdaptiveConversation(summarizing_llm=langchain_llm)
 crew_instance = Babynest().crew()
 reasoning_tool = ReasoningTool(llm=langchain_llm)
 validation_tool = ValidationTool(llm=langchain_llm)
+general_chat_tool = GeneralChatTool(llm=langchain_llm)
 
 
 
@@ -156,12 +157,12 @@ async def mcp_pipeline(user_request: str, session_id: str = None):
     else:
         logger.info("Routing to LangChain RAG...")
         retrieved_docs = retriever.get_documents(user_request)
-        reasoning = await reasoning_tool.reason(
+        
+        raw_response = await general_chat_tool.chat(
             user_input=user_request,
             chat_history=formatted_history,
             retrieved_docs=retrieved_docs
         )
-        raw_response = await validation_tool.validate(reasoning)
 
     session_memory[session_id].append((user_request, raw_response))
 
